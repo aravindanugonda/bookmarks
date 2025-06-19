@@ -33,9 +33,9 @@ def init_db():
 
 init_db()
 
+# Change sidebar menu to radio buttons
 menu = ["Add Bookmark", "View Bookmarks"]
-# Set default to 'View Bookmarks' (index 1)
-choice = st.sidebar.selectbox("Menu", menu, index=1)
+choice = st.sidebar.radio("Menu", menu, index=1)
 
 # Helper to fetch bookmarks (with optional tag search)
 def fetch_bookmarks(tag_query=None):
@@ -191,8 +191,23 @@ if choice == "Add Bookmark":
 
 elif choice == "View Bookmarks":
     st.subheader("")
-    tag_query = st.text_input("🔎 Search by tag (partial or full tag)")
-    bookmarks = fetch_bookmarks(tag_query)
+    # New tag search with clear button
+    # Use columns to align search box and clear button on the same row
+    # If clear was pressed, reset the search box value before rendering
+    if st.session_state.get('clear_tag_search_flag', False):
+        st.session_state['tag_query'] = ''
+        st.session_state['tag_search_box'] = ''
+        st.session_state['clear_tag_search_flag'] = False
+    search_col, clear_col = st.columns([0.8, 0.2])
+    with search_col:
+        tag_query = st.text_input("🔎 Search by tag (partial or full tag)", value=st.session_state.get('tag_query', ''), key="tag_search_box")
+        st.session_state['tag_query'] = tag_query
+    with clear_col:
+        st.markdown("<div style='height:1.7em'></div>", unsafe_allow_html=True)
+        if st.button("Clear", key="clear_tag_search"):
+            st.session_state['clear_tag_search_flag'] = True
+            st.rerun()
+    bookmarks = fetch_bookmarks(st.session_state.get('tag_query', ''))
     PAGE_SIZE = 10
     total = len(bookmarks)
     if total == 0:
@@ -204,30 +219,35 @@ elif choice == "View Bookmarks":
         end = start + PAGE_SIZE
         for row in bookmarks[start:end]:
             bid, title, url, description, tags, created_at = row
-            # Build card HTML in one go
-            card_html = f"""
-            <div class='bookmark-card'>
-                <div class='bookmark-title'><a href='{url}' target='_blank' title='Open link in new tab'>{title}  <span style='font-size:1.1em;'>🔗</span></a></div>
-                {f"<div class='bookmark-desc'>{description}</div>" if description else ""}
-            """
-            # Tags
+            # Use columns to align link and icon buttons inline
+            link_col, edit_col, delete_col, spacer_col = st.columns([0.7, 0.08, 0.08, 0.14])
+            with link_col:
+                st.markdown(f"<div class='bookmark-title' style='display:flex; align-items:center; margin-bottom:0;'>"
+                            f"<a href='{url}' target='_blank' title='Open link in new tab' style='margin-right:0.5em;'>{title} <span style='font-size:1.1em;'>🔗</span></a>"
+                            f"</div>", unsafe_allow_html=True)
+            with edit_col:
+                edit_clicked = st.button("", key=f"edit_btn_{bid}", help="Edit this bookmark", use_container_width=True, type="secondary", icon="✏️")
+                if edit_clicked:
+                    st.session_state[f"edit_{bid}_active"] = True
+            with delete_col:
+                delete_clicked = st.button("", key=f"delete_btn_{bid}", help="Delete this bookmark", use_container_width=True, type="secondary", icon="🗑️")
+                if delete_clicked:
+                    delete_bookmark(bid)
+                    st.success("Bookmark deleted!")
+                    st.rerun()
+            # Description preview: show only first three lines
+            if description:
+                desc_lines = description.splitlines()
+                preview = '\n'.join(desc_lines[:3])
+                if len(desc_lines) > 3:
+                    preview += ' ...'
+                st.markdown(f"<div class='bookmark-desc'>{preview}</div>", unsafe_allow_html=True)
             if tags:
                 tag_list = [t.strip() for t in tags.split(',') if t.strip()]
                 if tag_list:
                     tag_html = ' '.join([f"<span class='tag-pill'><i>🏷️</i>{t}</span>" for t in tag_list])
-                    card_html += f"<div style='margin-bottom:0.5em;'>{tag_html}</div>"
-            card_html += "</div>"
-            st.markdown(card_html, unsafe_allow_html=True)
-            col1, col2 = st.columns([1,1])
-            with col1:
-                edit_clicked = st.button("✏️ Edit", key=f"edit_btn_{bid}", help="Edit this bookmark")
-                if edit_clicked:
-                    st.session_state[f"edit_{bid}_active"] = True
-            with col2:
-                if st.button("🗑️ Delete", key=f"delete_{bid}", help="Delete this bookmark"):
-                    delete_bookmark(bid)
-                    st.success("Bookmark deleted!")
-                    st.rerun()
+                    st.markdown(f"<div style='margin-bottom:0.5em;'>{tag_html}</div>", unsafe_allow_html=True)
+            # Edit form logic remains unchanged
             if st.session_state.get(f"edit_{bid}_active"):
                 with st.form(key=f"edit_form_{bid}"):
                     new_title = st.text_input("Title", value=title, key=f"title_{bid}")

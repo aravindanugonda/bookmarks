@@ -1,10 +1,14 @@
 # Bookmarks App
 
-A simple Python application to manage bookmarks. This app uses a SQLite database to store bookmarks.
+A modern Python + Streamlit application to manage bookmarks with a beautiful UI. Bookmarks are stored in a SQLite database.
 
 ## Features
-- Add, view, and manage bookmarks
-- Uses SQLite for storage
+- Add, view, edit, and delete bookmarks
+- Search bookmarks by tag with a clear/reset button
+- Modern sidebar navigation (radio buttons)
+- Edit and delete icons inline with each bookmark link
+- Description preview (first 3 lines shown)
+- Responsive, clean UI with custom styles
 
 ## Requirements
 - Python 3.x
@@ -17,7 +21,7 @@ A simple Python application to manage bookmarks. This app uses a SQLite database
    ```
 2. Run the app:
    ```bash
-   python app.py
+   streamlit run app.py
    ```
 
 ## Notes
