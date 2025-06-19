@@ -2,68 +2,103 @@
 # This app allows users to add, view, and manage browser bookmarks using a Turso (SQLite) database.
 
 import streamlit as st
-import sqlite3
 import os
+import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env if present
+load_dotenv()
 
 # --- Turso DB connection setup ---
-# You need to set TURSO_DB_URL and TURSO_DB_AUTH_TOKEN as environment variables
 TURSO_DB_URL = os.getenv("TURSO_DB_URL")
 TURSO_DB_AUTH_TOKEN = os.getenv("TURSO_DB_AUTH_TOKEN")
+AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
-# For demonstration, we use sqlite3. For production, use Turso's HTTP API or client.
-def get_connection():
-    # Replace this with Turso's connection logic or HTTP API
-    # Example: Use requests to interact with Turso HTTP API
-    # For now, fallback to local SQLite for development
-    return sqlite3.connect("bookmarks.db")
+if not TURSO_DB_URL or not TURSO_DB_AUTH_TOKEN:
+    st.error("TURSO_DB_URL and TURSO_DB_AUTH_TOKEN must be set in environment variables.")
+    st.stop()
 
-def init_db():
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS bookmarks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        url TEXT NOT NULL,
-        description TEXT,
-        tags TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    conn.commit()
-    conn.close()
+# Convert libsql:// to https:// for HTTP API
+if TURSO_DB_URL.startswith("libsql://"):
+    TURSO_DB_URL = TURSO_DB_URL.replace("libsql://", "https://", 1)
 
-init_db()
+HEADERS = {"Authorization": f"Bearer {TURSO_DB_AUTH_TOKEN}"}
 
-# Change sidebar menu to radio buttons
-menu = ["Add Bookmark", "View Bookmarks"]
-choice = st.sidebar.radio("Menu", menu, index=1)
+# --- Authentication check ---
+def check_auth():
+    if not AUTH_TOKEN:
+        st.error("AUTH_TOKEN environment variable not set.")
+        st.stop()
+    if 'authenticated' not in st.session_state:
+        st.session_state['authenticated'] = False
+    if not st.session_state['authenticated']:
+        token = st.text_input("Enter authentication token:", type="password")
+        if st.button("Login"):
+            if token and token == AUTH_TOKEN:
+                st.session_state['authenticated'] = True
+                st.rerun()
+            else:
+                st.error("Invalid token. Access denied.")
+                st.stop()
+        else:
+            st.stop()
+
+check_auth()
+
+# --- Turso HTTP API helpers ---
+def turso_execute(sql, args=None, named_args=None):
+    stmt = {"sql": sql}
+    if args:
+        stmt["args"] = [{"type": "text", "value": str(a)} for a in args]
+    if named_args:
+        stmt["named_args"] = [
+            {"name": k, "value": {"type": "text", "value": str(v)}} for k, v in named_args.items()
+        ]
+    body = {
+        "requests": [
+            {"type": "execute", "stmt": stmt},
+            {"type": "close"}
+        ]
+    }
+    resp = requests.post(f"{TURSO_DB_URL}/v2/pipeline", headers=HEADERS, json=body)
+    if resp.status_code != 200:
+        st.error(f"Turso error: {resp.status_code} {resp.text}")
+        st.stop()
+    results = resp.json()["results"]
+    # Find the first execute result
+    for r in results:
+        if r["type"] == "ok" and r["response"]["type"] == "execute":
+            return r["response"]["result"]
+    return None
 
 # Helper to fetch bookmarks (with optional tag search)
 def fetch_bookmarks(tag_query=None):
-    conn = get_connection()
-    c = conn.cursor()
     if tag_query:
-        c.execute("SELECT id, title, url, description, tags, created_at FROM bookmarks WHERE tags LIKE ? ORDER BY created_at DESC", (f"%{tag_query}%",))
+        sql = "SELECT id, title, url, description, tags, created_at FROM bookmarks WHERE tags LIKE ? ORDER BY created_at DESC"
+        args = [f"%{tag_query}%"]
     else:
-        c.execute("SELECT id, title, url, description, tags, created_at FROM bookmarks ORDER BY created_at DESC")
-    rows = c.fetchall()
-    conn.close()
+        sql = "SELECT id, title, url, description, tags, created_at FROM bookmarks ORDER BY created_at DESC"
+        args = None
+    result = turso_execute(sql, args=args)
+    if not result:
+        return []
+    # Convert rows to tuples
+    rows = []
+    for row in result.get("rows", []):
+        rows.append(tuple(cell.get("value") for cell in row))
     return rows
 
 # Helper to update a bookmark
 def update_bookmark(bid, title, url, description, tags):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("UPDATE bookmarks SET title=?, url=?, description=?, tags=? WHERE id=?", (title, url, description, tags, bid))
-    conn.commit()
-    conn.close()
+    sql = "UPDATE bookmarks SET title=?, url=?, description=?, tags=? WHERE id=?"
+    args = [title, url, description, tags, bid]
+    turso_execute(sql, args=args)
 
 # Helper to delete a bookmark
 def delete_bookmark(bid):
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("DELETE FROM bookmarks WHERE id=?", (bid,))
-    conn.commit()
-    conn.close()
+    sql = "DELETE FROM bookmarks WHERE id=?"
+    args = [bid]
+    turso_execute(sql, args=args)
 
 st.markdown('''
     <style>
@@ -167,6 +202,9 @@ st.markdown('''
 
 st.markdown('<div class="colorful-header">📑 Bookmark Manager</div>', unsafe_allow_html=True)
 
+menu = ["Add Bookmark", "View Bookmarks"]
+choice = st.sidebar.radio("Menu", menu, index=1)
+
 if choice == "Add Bookmark":
     st.markdown('<div class="add-form">', unsafe_allow_html=True)
     st.subheader("Add a New Bookmark")
@@ -180,12 +218,9 @@ if choice == "Add Bookmark":
             url = str(url or "").strip()
             if url and not url.startswith(('http://', 'https://')):
                 url = 'https://' + url
-            conn = get_connection()
-            c = conn.cursor()
-            c.execute("INSERT INTO bookmarks (title, url, description, tags) VALUES (?, ?, ?, ?)",
-                      (title, url, description, tags))
-            conn.commit()
-            conn.close()
+            sql = "INSERT INTO bookmarks (title, url, description, tags) VALUES (?, ?, ?, ?)"
+            args = [title, url, description, tags]
+            turso_execute(sql, args=args)
             st.success("Bookmark added!")
     st.markdown('</div>', unsafe_allow_html=True)
 
