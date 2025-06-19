@@ -18,10 +18,6 @@ if not TURSO_DB_URL or not TURSO_DB_AUTH_TOKEN:
     st.error("TURSO_DB_URL and TURSO_DB_AUTH_TOKEN must be set in environment variables.")
     st.stop()
 
-# Convert libsql:// to https:// for HTTP API
-if TURSO_DB_URL.startswith("libsql://"):
-    TURSO_DB_URL = TURSO_DB_URL.replace("libsql://", "https://", 1)
-
 HEADERS = {"Authorization": f"Bearer {TURSO_DB_AUTH_TOKEN}"}
 
 # --- Authentication check ---

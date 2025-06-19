@@ -1,6 +1,6 @@
 # Bookmarks App (Turso Edition)
 
-A modern Python + Streamlit application to manage bookmarks with a beautiful UI. Bookmarks are stored in a Turso (libSQL) cloud database using the HTTP API.
+A modern Python + Streamlit application to manage bookmarks with a beautiful UI. Bookmarks are stored in a Turso cloud database using the HTTP API.
 
 ## Features
 - Add, view, edit, and delete bookmarks
@@ -22,11 +22,11 @@ A modern Python + Streamlit application to manage bookmarks with a beautiful UI.
 2. **Create a Turso auth token** for your database
 3. **Create a `.env` file** in the project root with:
    ```env
-   TURSO_DB_URL=libsql://<your-db-name>-<org>.turso.io
+   TURSO_DB_URL="https://<your-db-name>-<org>.turso.io"
    TURSO_DB_AUTH_TOKEN=<your-turso-token>
    AUTH_TOKEN=<your-app-login-token>
    ```
-   - Replace values with your actual Turso DB URL and tokens.
+   - Replace values with your actual Turso DB URL and tokens. The URL must start with `https://` for the HTTP API.
 
 4. **Install dependencies:**
    ```bash
