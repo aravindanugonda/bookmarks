@@ -5,6 +5,7 @@ import streamlit as st
 import os
 import requests
 from dotenv import load_dotenv
+import hashlib
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -12,7 +13,6 @@ load_dotenv()
 # --- Turso DB connection setup ---
 TURSO_DB_URL = os.getenv("TURSO_DB_URL")
 TURSO_DB_AUTH_TOKEN = os.getenv("TURSO_DB_AUTH_TOKEN")
-AUTH_TOKEN = os.getenv("AUTH_TOKEN")
 
 if not TURSO_DB_URL or not TURSO_DB_AUTH_TOKEN:
     st.error("TURSO_DB_URL and TURSO_DB_AUTH_TOKEN must be set in environment variables.")
@@ -20,22 +20,36 @@ if not TURSO_DB_URL or not TURSO_DB_AUTH_TOKEN:
 
 HEADERS = {"Authorization": f"Bearer {TURSO_DB_AUTH_TOKEN}"}
 
-# --- Authentication check ---
+# --- Authentication check (multi-user) ---
+def get_env_users():
+    users = []
+    for i in range(1, 4):
+        cred = os.getenv(f"USER{i}_CRED")
+        if cred and ':' in cred:
+            email, password = cred.split(':', 1)
+            users.append({'email': email.strip(), 'password': password.strip()})
+    return users
+
 def check_auth():
-    if not AUTH_TOKEN:
-        st.error("AUTH_TOKEN environment variable not set.")
+    users = get_env_users()
+    if not users:
+        st.error("No user credentials set in environment variables.")
         st.stop()
     if 'authenticated' not in st.session_state:
         st.session_state['authenticated'] = False
+    if 'user_email' not in st.session_state:
+        st.session_state['user_email'] = None
     if not st.session_state['authenticated']:
-        token = st.text_input("Enter authentication token:", type="password")
+        email = st.text_input("Email address:")
+        password = st.text_input("Password:", type="password")
         if st.button("Login"):
-            if token and token == AUTH_TOKEN:
-                st.session_state['authenticated'] = True
-                st.rerun()
-            else:
-                st.error("Invalid token. Access denied.")
-                st.stop()
+            for user in users:
+                if email == user['email'] and password == user['password']:
+                    st.session_state['authenticated'] = True
+                    st.session_state['user_email'] = email
+                    st.rerun()
+            st.error("Invalid credentials. Access denied.")
+            st.stop()
         else:
             st.stop()
 
@@ -69,12 +83,15 @@ def turso_execute(sql, args=None, named_args=None):
 
 # Helper to fetch bookmarks (with optional tag search)
 def fetch_bookmarks(tag_query=None):
+    user_email = st.session_state.get('user_email')
+    if not user_email:
+        return []
     if tag_query:
-        sql = "SELECT id, title, url, description, tags, created_at FROM bookmarks WHERE tags LIKE ? ORDER BY created_at DESC"
-        args = [f"%{tag_query}%"]
+        sql = "SELECT id, title, url, description, tags, created_at FROM bookmarks WHERE user_email = ? AND tags LIKE ? ORDER BY created_at DESC"
+        args = [user_email, f"%{tag_query}%"]
     else:
-        sql = "SELECT id, title, url, description, tags, created_at FROM bookmarks ORDER BY created_at DESC"
-        args = None
+        sql = "SELECT id, title, url, description, tags, created_at FROM bookmarks WHERE user_email = ? ORDER BY created_at DESC"
+        args = [user_email]
     result = turso_execute(sql, args=args)
     if not result:
         return []
@@ -86,8 +103,9 @@ def fetch_bookmarks(tag_query=None):
 
 # Helper to update a bookmark
 def update_bookmark(bid, title, url, description, tags):
-    sql = "UPDATE bookmarks SET title=?, url=?, description=?, tags=? WHERE id=?"
-    args = [title, url, description, tags, bid]
+    user_email = st.session_state.get('user_email')
+    sql = "UPDATE bookmarks SET title=?, url=?, description=?, tags=? WHERE id=? AND user_email=?"
+    args = [title, url, description, tags, bid, user_email]
     turso_execute(sql, args=args)
 
 # Helper to delete a bookmark
@@ -214,8 +232,9 @@ if choice == "Add Bookmark":
             url = str(url or "").strip()
             if url and not url.startswith(('http://', 'https://')):
                 url = 'https://' + url
-            sql = "INSERT INTO bookmarks (title, url, description, tags) VALUES (?, ?, ?, ?)"
-            args = [title, url, description, tags]
+            user_email = st.session_state.get('user_email')
+            sql = "INSERT INTO bookmarks (title, url, description, tags, user_email) VALUES (?, ?, ?, ?, ?)"
+            args = [title, url, description, tags, user_email]
             turso_execute(sql, args=args)
             st.success("Bookmark added!")
     st.markdown('</div>', unsafe_allow_html=True)

@@ -9,7 +9,8 @@ A modern Python + Streamlit application to manage bookmarks with a beautiful UI.
 - Edit and delete icons inline with each bookmark link
 - Description preview (first 3 lines shown)
 - Responsive, clean UI with custom styles
-- **Authentication required**: Set an `AUTH_TOKEN` to restrict access
+- **Multi-user authentication**: Each user logs in with their own email and password (set via environment variables)
+- **User isolation**: Each user only sees and manages their own bookmarks
 - **Cloud-native**: Uses Turso HTTP API (no local SQLite)
 
 ## Requirements
@@ -24,22 +25,35 @@ A modern Python + Streamlit application to manage bookmarks with a beautiful UI.
    ```env
    TURSO_DB_URL="https://<your-db-name>-<org>.turso.io"
    TURSO_DB_AUTH_TOKEN=<your-turso-token>
-   AUTH_TOKEN=<your-app-login-token>
+   USER1_CRED="user1@example.com:password1"
+   USER2_CRED="user2@example.com:password2"
+   USER3_CRED="user3@example.com:password3"
    ```
-   - Replace values with your actual Turso DB URL and tokens. The URL must start with `https://` for the HTTP API.
+   - Replace values with your actual Turso DB URL, token, and user credentials. The URL must start with `https://` for the HTTP API.
 
-4. **Install dependencies:**
+4. **Update your database schema:**
+   - Add a `user_email` column to your bookmarks table:
+     ```sql
+     ALTER TABLE bookmarks ADD COLUMN user_email TEXT;
+     ```
+   - For existing bookmarks, associate them with a user:
+     ```sql
+     UPDATE bookmarks SET user_email = 'user1@example.com';
+     ```
+     (Repeat for each user as needed.)
+
+5. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-5. **Run the app:**
+6. **Run the app:**
    ```bash
    streamlit run app.py
    ```
 
-6. **Login:**
-   - When prompted, enter the value of `AUTH_TOKEN` to access the app.
+7. **Login:**
+   - When prompted, enter your email and password as set in the `.env` file.
 
 ## Turso Table Schema
 Create this table in your Turso database before running the app:
@@ -50,13 +64,14 @@ CREATE TABLE bookmarks (
     url TEXT NOT NULL,
     description TEXT,
     tags TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_email TEXT
 );
 ```
 
 ## Deployment
 - Works on [Render.com](https://render.com/) and other cloud platforms.
-- Set the same environment variables (`TURSO_DB_URL`, `TURSO_DB_AUTH_TOKEN`, `AUTH_TOKEN`) in your deployment settings.
+- Set the same environment variables (`TURSO_DB_URL`, `TURSO_DB_AUTH_TOKEN`, `USER1_CRED`, etc.) in your deployment settings.
 
 ## Notes
 - This app uses the Turso HTTP API `/v2/pipeline` endpoint for all SQL operations.
